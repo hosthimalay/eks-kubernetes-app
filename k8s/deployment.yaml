@@ -1,0 +1,84 @@
+# ==============================================================================
+# Deployment — 3 replicas, health probes, resource limits, rolling update
+# Replace <ECR_REPO_URI> with your actual ECR URI from terraform output
+# ==============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: node-app
+  namespace: production
+  labels:
+    app: node-app
+    version: "1.0.0"
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: node-app
+
+  # Rolling update strategy — zero downtime deployments
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1        # Allow 1 extra pod during update
+      maxUnavailable: 0  # Never take a pod down before a new one is ready
+
+  template:
+    metadata:
+      labels:
+        app: node-app
+        version: "1.0.0"
+    spec:
+      # Graceful termination — lets Kubernetes drain connections cleanly
+      terminationGracePeriodSeconds: 30
+
+      containers:
+        - name: node-app
+          image: <ECR_REPO_URI>:latest   # Replace with your ECR URI
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+              protocol: TCP
+
+          # Environment from ConfigMap
+          envFrom:
+            - configMapRef:
+                name: node-app-config
+
+          # Resource requests and limits — essential for HPA and scheduling
+          resources:
+            requests:
+              cpu: "100m"     # 0.1 vCPU guaranteed
+              memory: "128Mi"
+            limits:
+              cpu: "250m"     # Max 0.25 vCPU
+              memory: "256Mi"
+
+          # Liveness probe — restart pod if app is deadlocked
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Readiness probe — only send traffic when app is truly ready
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+      # Spread pods across AZs for high availability
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: node-app

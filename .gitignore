@@ -1,0 +1,7 @@
+app.zip
+k8s.zip
+terraform.zip.zip
+.terraform/
+*.tfstate
+.terraform.lock.hcl
+node_modules/
